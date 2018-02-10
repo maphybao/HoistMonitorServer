@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "HoistMonitorServer/routers"
+	_ "github.com/denisenkom/go-mssqldb"
 
 	"fmt"
 	"github.com/astaxie/beego"
@@ -73,6 +74,7 @@ func main() {
 		beego.BConfig.WebConfig.StaticDir["/swagger"] = "swagger"
 	}
 
+	C.NET_DVR_INIT()
 	userId := C.Login()
 
 	// Prepare Socket Server
