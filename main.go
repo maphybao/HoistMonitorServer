@@ -59,7 +59,7 @@ var (
 	// 数据包头是“RY”, 内容是16进制的RFID卡号
 	DataHead = []byte{82, 89}
 	// 存放设备状态，应该存放在Redis中
-	deviceActiveMap map[string]*DeviceState
+	deviceActiveMap = map[string]*DeviceState{}
 )
 
 type DeviceState struct {
@@ -74,7 +74,7 @@ func main() {
 		beego.BConfig.WebConfig.StaticDir["/swagger"] = "swagger"
 	}
 
-	C.NET_DVR_INIT()
+	C.NET_DVR_Init()
 	userId := C.Login()
 
 	// Prepare Socket Server
@@ -126,6 +126,7 @@ func ConnectionHandler(conn net.Conn) {
 	addr := conn.RemoteAddr()
 	beego.Info("reader ip: ", addr)
 	deviceId, err := ReadLoginPacket(conn)
+	beego.Info("reader id: ", deviceId)
 	if err != nil {
 		beego.Error("Error read from socket. Connection will be close: ", err)
 		return
@@ -145,7 +146,16 @@ func ConnectionHandler(conn net.Conn) {
 			}
 		}
 
-		data := append(tail, buff[:length]...)
+		var data []byte
+		if tail != nil {
+			if isRFIDPacket(buff) {
+				data = append(tail, buff[2:length]...)
+			} else {
+				data = append(tail, buff[:length]...)
+			}
+		} else {
+			data = buff[:length]
+		}
 		tail = PreprocessPacket(data, deviceId)
 	}
 }
@@ -166,10 +176,11 @@ func PreprocessPacket(data []byte, deviceId string) []byte {
 		if packet != nil {
 			go RFIDPacketHandler(packet)
 			if tail != nil {
-				return PreprocessPacket(data[2:], deviceId)
+				return PreprocessPacket(tail, deviceId)
 			}
 		}
 
+		// 半包
 		if packet == nil && tail != nil {
 			return tail
 		}
@@ -206,8 +217,7 @@ func ReadLoginPacket(conn net.Conn) (string, error) {
 		return "", err
 	}
 
-	var deviceId string
-	fmt.Sprintf(deviceId, "%02x%02x%02x%02x%02x%02x%02x%02x", loginBuf[0], loginBuf[1], loginBuf[2],
+	var deviceId = fmt.Sprintf("%02x%02x%02x%02x%02x%02x%02x%02x", loginBuf[0], loginBuf[1], loginBuf[2],
 		loginBuf[3], loginBuf[4], loginBuf[5], loginBuf[6], loginBuf[7])
 
 	fmt.Println("设备号：", deviceId)
