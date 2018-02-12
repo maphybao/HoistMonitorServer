@@ -8,6 +8,7 @@ import (
 	"github.com/astaxie/beego"
 	"io"
 	"net"
+	"runtime"
 	"time"
 )
 
@@ -146,15 +147,19 @@ func ConnectionHandler(conn net.Conn) {
 			}
 		}
 
-		var data []byte
+		data := make([]byte, length)
 		if tail != nil {
+			beego.Info("上次收到的尾包：", tail)
 			if isRFIDPacket(buff) {
+				// 串口服务器拆分的半包
 				data = append(tail, buff[2:length]...)
 			} else {
+				// 4G网络拆分的半包
 				data = append(tail, buff[:length]...)
 			}
+			beego.Info("拼接完成的新包：", data)
 		} else {
-			data = buff[:length]
+			copy(data, buff)
 		}
 		tail = PreprocessPacket(data, deviceId)
 	}
@@ -195,6 +200,7 @@ func PreprocessPacket(data []byte, deviceId string) []byte {
 func HeartbeatPacketHandler(packet []byte, deviceId string) {
 	updateDeviceActiveTime(deviceId)
 	fmt.Println("Heartbeat.")
+	beego.Info("当前协程数：", runtime.NumGoroutine())
 	return
 }
 
@@ -205,6 +211,7 @@ func RFIDPacketHandler(packet []byte) {
 		fmt.Printf("%02X ", packet[i])
 	}
 	fmt.Printf("\n")
+	beego.Info("当前协程数：", runtime.NumGoroutine())
 
 	return
 }
