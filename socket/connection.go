@@ -15,18 +15,19 @@ const (
 )
 
 type SocketConnection struct {
-	Conn     net.Conn
-	Device   *models.Device
+	conn     net.Conn
+	device   *models.Device
 	crewList *list.List
 }
 
-func (s *SocketConnection) Init() {
+func (s *SocketConnection) Init(conn net.Conn) {
 	s.crewList = new(list.List)
+	s.conn = conn
 }
 
 func (s *SocketConnection) ReadLoginPacket() (string, error) {
 	loginBuf := make([]byte, 8)
-	_, err := io.ReadFull(s.Conn, loginBuf)
+	_, err := io.ReadFull(s.conn, loginBuf)
 	if err != nil {
 		beego.Error("Error read login packet: ", err)
 		return "", err
@@ -39,31 +40,31 @@ func (s *SocketConnection) ReadLoginPacket() (string, error) {
 	return deviceId, nil
 }
 
-func (s *SocketConnection) ConnectionHandler(conn net.Conn) {
-	s.Conn = conn
+func (s *SocketConnection) ConnectionHandler() {
 	var deviceId string
 	var crewRFIDSet = make(map[string]*time.Time, 20)
 
-	defer s.Conn.Close()
-	defer s.Device.DeactiveDevice()
+	defer s.conn.Close()
+	defer s.device.DeactiveDevice()
 
-	addr := conn.RemoteAddr()
+	addr := s.conn.RemoteAddr()
 	beego.Info("reader ip: ", addr)
 	deviceId, err := s.ReadLoginPacket()
 	beego.Info("reader id: ", deviceId)
+	s.device = models.DeviceStateMap[deviceId]
 	if err != nil {
 		beego.Error("Error read from socket. Connection will be close: ", err)
 		return
 	}
 
-	s.Device.IPAddress = addr
-	s.Device.LastHeartbeatTime = time.Now()
-	s.Device.IsActive = true
+	s.device.IPAddress = addr
+	s.device.LastHeartbeatTime = time.Now()
+	s.device.IsActive = true
 
 	buff := make([]byte, 10*1024)
 	var tail []byte = nil
 	for {
-		length, err := conn.Read(buff)
+		length, err := s.conn.Read(buff)
 		if err != nil {
 			if err.(net.Error).Timeout() {
 				continue
@@ -127,7 +128,7 @@ func (s *SocketConnection) PreprocessPacket(data []byte, deviceId string, crewSe
 }
 
 func (s *SocketConnection) HeartbeatPacketHandler() {
-	s.Device.UpdateDeviceActiveTime()
+	s.device.UpdateDeviceActiveTime()
 	beego.Info("Heartbeat.")
 	return
 }
@@ -208,11 +209,11 @@ func (s *SocketConnection) formatRFIDData(packet []byte) string {
 }
 
 func (s *SocketConnection) isHeartbeat(packet []byte) bool {
-	return (packet[0] == s.Device.Heartbeat[0]) && (packet[1] == s.Device.Heartbeat[1])
+	return (packet[0] == s.device.Heartbeat[0]) && (packet[1] == s.device.Heartbeat[1])
 }
 
 func (s *SocketConnection) isRFIDPacket(packet []byte) bool {
-	return (packet[0] == s.Device.PacketHead[0]) && (packet[1] == s.Device.PacketHead[1])
+	return (packet[0] == s.device.PacketHead[0]) && (packet[1] == s.device.PacketHead[1])
 }
 
 func (s *SocketConnection) parseRFIDPackets(data []byte) ([]byte, []byte) {

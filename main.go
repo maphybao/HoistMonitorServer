@@ -2,16 +2,12 @@ package main
 
 import (
 	_ "HoistMonitorServer/routers"
-	_ "github.com/denisenkom/go-mssqldb"
 
 	"HoistMonitorServer/models"
 	"HoistMonitorServer/socket"
-	"container/list"
-	"database/sql"
-	"fmt"
 	"github.com/astaxie/beego"
 	"net"
-	"sync"
+	"strings"
 )
 
 /*
@@ -61,37 +57,15 @@ var (
 	Heartbeat = []byte{90, 90}
 	// 数据包头是“RY”, 内容是16进制的RFID卡号
 	DataHead = []byte{82, 89}
-	// 存放设备状态，应该存放在Redis中
-	deviceStateMap             = make(map[string]*models.Device, 100)
-	crewMap                    = make(map[string]*list.List, 100)
-	deviceMapLock  *sync.Mutex = new(sync.Mutex)
 )
 
 func init() {
 	// 需要启用了监控的租户列表
 	// Todo: 分租户加载合法人员名单到crewMap
 	// Todo: 分租户加载读头到deviceStateMap
-}
-
-func Dial() *sql.DB {
-	server := beego.AppConfig.String("mssqlserver")
-	account := beego.AppConfig.String("mssqlaccount")
-	password := beego.AppConfig.String("mssqlpass")
-	dbinstance := beego.AppConfig.String("hoistdb")
-
-	dsn := "server=" + server + ";user id=" + account + ";password=" + password + ";database=" + dbinstance
-	dbconn, err := sql.Open("mssql", dsn)
-	if err != nil {
-		fmt.Println("Cannot connect: ", err.Error())
-		return nil
-	}
-	err = dbconn.Ping()
-	if err != nil {
-		fmt.Println("Cannot connect: ", err.Error())
-		return nil
-	}
-
-	return dbconn
+	registeredTenant := beego.AppConfig.String("tenantlist")
+	tenantlist := strings.Split(registeredTenant, ",")
+	models.LoadDeviceByTenantIDs(tenantlist)
 }
 
 func main() {
@@ -128,20 +102,7 @@ func startSocketServer(listener *net.TCPListener) {
 		}
 
 		sc := new(socket.SocketConnection)
-		go sc.ConnectionHandler(conn)
+		sc.Init(conn)
+		go sc.ConnectionHandler()
 	}
-}
-
-func DeactiveDevice(lock *sync.Mutex, deviceId string) {
-	lock.Lock()
-	device := deviceStateMap[deviceId]
-	device.DeactiveDevice()
-	lock.Unlock()
-}
-
-func UpdateDeviceActiveTime(lock *sync.Mutex, deviceId string) {
-	lock.Lock()
-	device := deviceStateMap[deviceId]
-	device.UpdateDeviceActiveTime()
-	lock.Unlock()
 }
