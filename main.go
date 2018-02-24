@@ -7,7 +7,6 @@ import (
 	"HoistMonitorServer/socket"
 	"github.com/astaxie/beego"
 	"net"
-	"strings"
 )
 
 /*
@@ -60,12 +59,7 @@ var (
 )
 
 func init() {
-	// 需要启用了监控的租户列表
-	// Todo: 分租户加载合法人员名单到crewMap
-	// Todo: 分租户加载读头到deviceStateMap
-	registeredTenant := beego.AppConfig.String("tenantlist")
-	tenantlist := strings.Split(registeredTenant, ",")
-	models.LoadDeviceByTenantIDs(tenantlist)
+	models.LoadDevice()
 }
 
 func main() {

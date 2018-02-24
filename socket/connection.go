@@ -15,13 +15,16 @@ const (
 )
 
 type SocketConnection struct {
-	conn     net.Conn
-	device   *models.Device
-	crewList *list.List
+	conn         net.Conn
+	device       *models.Device
+	crewList     *list.List
+	employeeList []string
+	crewRFIDSet  map[string]*time.Time
 }
 
 func (s *SocketConnection) Init(conn net.Conn) {
 	s.crewList = new(list.List)
+	s.crewRFIDSet = make(map[string]*time.Time, 20)
 	s.conn = conn
 }
 
@@ -42,7 +45,6 @@ func (s *SocketConnection) ReadLoginPacket() (string, error) {
 
 func (s *SocketConnection) ConnectionHandler() {
 	var deviceId string
-	var crewRFIDSet = make(map[string]*time.Time, 20)
 
 	defer s.conn.Close()
 	defer s.device.DeactiveDevice()
@@ -51,11 +53,12 @@ func (s *SocketConnection) ConnectionHandler() {
 	beego.Info("reader ip: ", addr)
 	deviceId, err := s.ReadLoginPacket()
 	beego.Info("reader id: ", deviceId)
-	s.device = models.DeviceStateMap[deviceId]
+	s.device = models.GetDevice(deviceId)
 	if err != nil {
 		beego.Error("Error read from socket. Connection will be close: ", err)
 		return
 	}
+	s.employeeList, _ = models.LoadEmployeeRFIDByTenant(s.device.TenantLayerCode)
 
 	s.device.IPAddress = addr
 	s.device.LastHeartbeatTime = time.Now()
@@ -88,15 +91,15 @@ func (s *SocketConnection) ConnectionHandler() {
 		} else {
 			copy(data, buff)
 		}
-		tail = s.PreprocessPacket(data, deviceId, crewRFIDSet)
+		tail = s.PreprocessPacket(data, deviceId)
 	}
 }
 
-func (s *SocketConnection) PreprocessPacket(data []byte, deviceId string, crewSet map[string]*time.Time) []byte {
+func (s *SocketConnection) PreprocessPacket(data []byte, deviceId string) []byte {
 	if s.isHeartbeat(data) {
 		go s.HeartbeatPacketHandler()
 		if len(data) > 2 {
-			return s.PreprocessPacket(data[2:], deviceId, crewSet)
+			return s.PreprocessPacket(data[2:], deviceId)
 		}
 
 		return nil
@@ -106,9 +109,9 @@ func (s *SocketConnection) PreprocessPacket(data []byte, deviceId string, crewSe
 		//Todo: 处理RFID
 		packet, tail := s.parseRFIDPackets(data)
 		if packet != nil {
-			go s.RFIDPacketHandler(packet, crewSet)
+			go s.RFIDPacketHandler(packet)
 			if tail != nil {
-				return s.PreprocessPacket(tail, deviceId, crewSet)
+				return s.PreprocessPacket(tail, deviceId)
 			}
 		}
 
@@ -133,7 +136,7 @@ func (s *SocketConnection) HeartbeatPacketHandler() {
 	return
 }
 
-func (s *SocketConnection) RFIDPacketHandler(packet []byte, crewSet map[string]*time.Time) {
+func (s *SocketConnection) RFIDPacketHandler(packet []byte) {
 	idx := 2
 	activeTime := time.Now()
 	plength := len(packet)
@@ -143,7 +146,7 @@ func (s *SocketConnection) RFIDPacketHandler(packet []byte, crewSet map[string]*
 		rfidArray := s.extractRFID(rdata)
 		for _, rfid := range rfidArray {
 			if s.isValidCrewRFID(rfid) {
-				crewSet[rfid] = &activeTime
+				s.crewRFIDSet[rfid] = &activeTime
 			}
 			fmt.Println(rfid, " ")
 		}
@@ -154,19 +157,23 @@ func (s *SocketConnection) RFIDPacketHandler(packet []byte, crewSet map[string]*
 		}
 	}
 
-	for rfid := range crewSet {
-		if s.isOutOfDate(rfid, crewSet) {
-			delete(crewSet, rfid)
+	for rfid := range s.crewRFIDSet {
+		if s.isOutOfDate(rfid) {
+			delete(s.crewRFIDSet, rfid)
 		}
 	}
 
-	fmt.Println("在场人数：", len(crewSet))
+	crewCount := len(s.crewRFIDSet)
+	fmt.Println("在场人数：", crewCount)
+	if crewCount > s.device.CrewLimit {
+		go s.OverloadHandler()
+	}
 
 	return
 }
 
-func (s *SocketConnection) isOutOfDate(rfid string, crewSet map[string]*time.Time) bool {
-	tt := crewSet[rfid]
+func (s *SocketConnection) isOutOfDate(rfid string) bool {
+	tt := s.crewRFIDSet[rfid]
 	if tt != nil && time.Now().Sub(*tt) > time.Duration(RFIDLifeTime)*time.Second {
 		return true
 	}
@@ -174,9 +181,21 @@ func (s *SocketConnection) isOutOfDate(rfid string, crewSet map[string]*time.Tim
 	return false
 }
 
+func (s *SocketConnection) OverloadHandler() {
+	// Todo: 建告警表，记录告警信息
+	s.device.PlayWarning()
+	s.device.TakePicture()
+}
+
 // 检查是否是人员的RFID, 需要忽略设备、环境等发卡
 func (s *SocketConnection) isValidCrewRFID(rfid string) bool {
-	return true
+	for _, erfid := range s.employeeList {
+		if erfid == rfid {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *SocketConnection) printRFIDData(packet []byte) {
