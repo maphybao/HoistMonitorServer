@@ -10,6 +10,48 @@ import (
 	"time"
 )
 
+/*
+#cgo CFLAGS: -I../hikvision/include
+#cgo LDFLAGS: -L../hikvision/lib -lHCNetSDK
+
+#include <stdio.h>
+#include <stdbool.h>
+#include "HCNetSDK_c.h"
+
+NET_DVR_DEVICEINFO_V40 deviceInfo;
+
+LONG Login(char* ipaddress, int port, char* username, char* password)
+{
+	NET_DVR_USER_LOGIN_INFO loginInfo =
+	{
+		.sDeviceAddress = *ipaddress,
+		.sUserName = *username,
+		.sPassword = *password,
+		.bUseAsynLogin = 0,
+		.wPort = port
+	};
+
+	return NET_DVR_Login_V40(&loginInfo, &deviceInfo);
+}
+
+bool CaptureImage(LONG userID, char* path)
+{
+    NET_DVR_JPEGPARA strPicPara =
+    {
+    	.wPicQuality = 2,
+    	.wPicSize = 0
+    };
+    int iRet;
+    iRet = NET_DVR_CaptureJPEGPicture(userID, deviceInfo.struDeviceV30.byStartChan, &strPicPara, path);
+    if (!iRet)
+    {
+        printf("pyd1---NET_DVR_CaptureJPEGPicture error, %d\n", NET_DVR_GetLastError());
+        return false;
+    }
+}
+*/
+import "C"
+
 const (
 	// Todo: 建设备表
 	QueryDeviceCmd = "SELECT name, description, device_id, camera_port, camera_account, camera_password, tenant_layer_code, crew_limit FROM hoist_monitor_device WHERE del_flag = 0;"
@@ -67,6 +109,9 @@ func (d *Device) PlayWarning() {
 }
 
 func (d *Device) TakePicture() {
+	userId := C.Login(C.CString(d.IPAddress.String()), C.int(d.CameraPort), C.CString(d.CameraAccount), C.CString(d.CameraPassword))
+	defer C.NET_DVR_Logout(userId)
+	C.CaptureImage(userId, C.CString(""))
 }
 
 func LoadDevice() {

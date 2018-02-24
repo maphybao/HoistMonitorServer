@@ -16,38 +16,6 @@ import (
 #include <stdio.h>
 #include <stdbool.h>
 #include "HCNetSDK_c.h"
-
-NET_DVR_DEVICEINFO_V40 deviceInfo;
-
-LONG Login()
-{
-	NET_DVR_USER_LOGIN_INFO loginInfo =
-	{
-		.sDeviceAddress = "192.168.1.4",
-		.sUserName = "admin",
-		.sPassword = "HIKVISION520",
-		.bUseAsynLogin = 0,
-		.wPort = 8000
-	};
-
-	return NET_DVR_Login_V40(&loginInfo, &deviceInfo);
-}
-
-bool CaptureImage(LONG userID, char* path)
-{
-    NET_DVR_JPEGPARA strPicPara =
-    {
-    	.wPicQuality = 2,
-    	.wPicSize = 0
-    };
-    int iRet;
-    iRet = NET_DVR_CaptureJPEGPicture(userID, deviceInfo.struDeviceV30.byStartChan, &strPicPara, path);
-    if (!iRet)
-    {
-        printf("pyd1---NET_DVR_CaptureJPEGPicture error, %d\n", NET_DVR_GetLastError());
-        return false;
-    }
-}
 */
 import "C"
 
@@ -69,7 +37,7 @@ func main() {
 	}
 
 	C.NET_DVR_Init()
-	userId := C.Login()
+	defer C.NET_DVR_Cleanup()
 
 	// Prepare Socket Server
 	service := ":3025"
@@ -82,9 +50,6 @@ func main() {
 	go startSocketServer(l)
 
 	beego.Run()
-
-	C.NET_DVR_Logout(userId)
-	C.NET_DVR_Cleanup()
 }
 
 func startSocketServer(listener *net.TCPListener) {
